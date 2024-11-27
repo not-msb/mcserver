@@ -1,5 +1,9 @@
 #!/bin/sh
+# Replace everything with your favorite programs
+# Im using ld.lld cuz it makes nice small programs
 
-set -xe
+#set -xe
 
-fasm src/main.asm main
+fasm src/main.asm main.o
+ld.lld main.o -o main -s
+rm main.o

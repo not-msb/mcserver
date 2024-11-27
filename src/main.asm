@@ -1,56 +1,47 @@
-format ELF64 executable
-entry main
+format ELF64
+public _start
 
 include "std_macros.asm"
 include "socket.asm"
 
 MAX_CONN = 32
 
-segment readable executable
-main:
-    ; Initializing socket
+section ".text" executable
+_start:
+.initFile:
+    open response.name, 0, 0
+    mov [response.fd], rax
+
+    fstat [response.fd], response.stat
+.initSocket:
     socket AF_INET, SOCK_STREAM, 0
-    mov [socket_fd], rax
+    mov [server.socket], rax
 
-    bind   [socket_fd], server_addr, 16
-    listen [socket_fd], MAX_CONN
+    bind   [server.socket], server.address, 16
+    listen [server.socket], MAX_CONN
 
-    accept [socket_fd], client_addr, client_addrlen
-    mov [conn_fd], rax
-    ; done initialzing
+    accept [server.socket], 0, 0
+    mov [server.connection], rax
 
-    ; Reading requests and ignoring them lol
-    read [conn_fd], resp_buffer, 16384
-    mov [length], rax
-    write STDOUT, resp_buffer, [length]
+.ignoreRequests:
+    read [server.connection], buffer, 16384
+    read [server.connection], buffer, 16384
 
-    read [conn_fd], resp_buffer, 16384
-    mov [length], rax
-    write STDOUT, resp_buffer, [length]
-    ; done reading
-
-    ; Opening response.json
-    open filename, 0, 0
-    mov [file_fd], rax
-
-    fstat [file_fd], file_stat
-    ; done opening
-
+.calculateJsonLength:
     ; Getting the length of the varint of the json-string length
     ; Very weird ik
     mov rcx, [writer.offset]
     mov rdi, writer
-    mov rsi, qword [file_stat+48] ; offsetof(struct stat, st_size) = 48
+    mov rsi, qword [response.stat+48] ; offsetof(struct stat, st_size) = 48
     call writeVarInt
 
     sub [writer.offset], rcx
     mov rcx, [writer.offset]
     mov [writer.offset], 0
-    ; done getting the length
 
-    ; Writing the full prefix now
+.writeResponsePrefix:
     mov rdi, writer
-    mov rsi, qword [file_stat+48]   ; st_size
+    mov rsi, qword [response.stat+48]   ; st_size
     add rsi, rcx                    ; json-length length
     add rsi, 1                      ; packet ID length
     call writeVarInt
@@ -60,40 +51,33 @@ main:
     call writeVarInt
 
     mov rdi, writer
-    mov rsi, qword [file_stat+48]
+    mov rsi, qword [response.stat+48]
     call writeVarInt
-    ; done writing the full prefix
 
-    ; Writing the json now
-    mov rsi, resp_buffer
+.writeResponseBody:
+    mov rsi, buffer
     add rsi, [writer.offset]
-    read [file_fd], rsi, qword [file_stat+48]
-    ; done writing the json
+    read [response.fd], rsi, qword [response.stat+48]
 
-    ; Sending response
+.sendResponse:
     mov rdx, [writer.offset]
-    add rdx, qword [file_stat+48]
-    write [conn_fd], resp_buffer, rdx
-    ; done sending
+    add rdx, qword [response.stat+48]
+    write [server.connection], buffer, rdx
 
-    read [conn_fd], resp_buffer, 16384
-    mov [length], rax
-    write [conn_fd], resp_buffer, [length]
+.pingPongResponse:
+    read [server.connection], buffer, 16384
+    write [server.connection], buffer, rax
 
-    ;write STDOUT, newline, 1
-
-    close [file_fd]
-
-    ; Correctly closing the socket
-    shutdown [socket_fd], SHUT_RDWR
+.closeSocket:
+    close [response.fd]
+    shutdown [server.socket], SHUT_RDWR
 .emptySocketRead:
-    read [conn_fd], resp_buffer, 16384
+    read [server.connection], buffer, 16384
     cmp rax, 0
     jne .emptySocketRead
 
-    close [conn_fd]
-    close [socket_fd]
-    ; done closing
+    close [server.connection]
+    close [server.socket]
 
     exit 0
 
@@ -107,6 +91,8 @@ struc Writer buffer, offset {
     .buffer dq buffer ; []u8
     .offset dq offset ; usize
 }
+
+; TODO: Remind yourself that readVarInt and writeVarInt are *BAD* implementations
 
 ; TODO TODO TODO: you need to use u32 dummy
 ; readVarInt(&Reader) u64
@@ -165,6 +151,9 @@ writeVarInt:
     call writeByte
     ret
 
+; testing function wrapper here
+; will hopefully make my life easier
+
 ;macro wrapperCall2 function {
 ;    macro function arg0, arg1 \{
 ;        mov rdi, arg0
@@ -173,22 +162,23 @@ writeVarInt:
 ;    \}
 ;}
 
-segment readable writable
-socket_fd rq 1
-conn_fd rq 1
-file_fd rq 1
+; Yes the reserve instructions dont work
+; I just use em here becauze im lazyyy
+section ".data" writable
+response:
+    .name db "response.json"
+    .stat rb 144
+    .fd   rq 1
 
-length rq 1
+server:
+    .address sockaddr_in AF_INET, 36895, 0 ; htons(8080) & INADDR_ANY
+    ;.address sockaddr_in AF_INET, 16415, 0 ; htons(8000) & INADDR_ANY
+    .socket     rq 1
+    .connection rq 1
 
-filename db "response.json"
-file_stat rb 144
 
-client_addr rb 16
-client_addrlen dq 16
-server_addr sockaddr_in AF_INET, 36895, 0 ; 8080 & INADDR_ANY
-;server_addr sockaddr_in AF_INET, 16415, 0 ; 8000 & INADDR_ANY
+reader Reader buffer, 0
+writer Writer buffer, 0
 
-resp_buffer rb 16384
-
-reader Reader resp_buffer, 0
-writer Writer resp_buffer, 0
+section ".bss" writable
+buffer rb 16384
