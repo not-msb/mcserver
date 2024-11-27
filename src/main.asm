@@ -1,18 +1,17 @@
 format ELF64
-public _start
+public main
 
 include "std_macros.asm"
 include "socket.asm"
+include "signal.asm"
 
 MAX_CONN = 32
 
 section ".text" executable
-_start:
-.initFile:
-    open response.name, 0, 0
-    mov [response.fd], rax
+main:
+.initCtrlC:
+    rt_sigaction SIGINT, act, 0
 
-    fstat [response.fd], response.stat
 .initSocket:
     socket AF_INET, SOCK_STREAM, 0
     mov [server.socket], rax
@@ -20,6 +19,12 @@ _start:
     bind   [server.socket], server.address, 16
     listen [server.socket], MAX_CONN
 
+.initFile:
+    open response.name, 0, 0
+    mov [response.fd], rax
+
+    fstat [response.fd], response.stat
+.acceptConnection:
     accept [server.socket], 0, 0
     mov [server.connection], rax
 
@@ -68,6 +73,11 @@ _start:
     read [server.connection], buffer, 16384
     write [server.connection], buffer, rax
 
+.redo:
+    close [response.fd]
+    ;close [server.connection]
+    jmp .initFile
+
 .closeSocket:
     close [response.fd]
     shutdown [server.socket], SHUT_RDWR
@@ -80,7 +90,6 @@ _start:
     close [server.socket]
 
     exit 0
-
 
 struc Reader buffer, offset {
     .buffer dq buffer ; []const u8
@@ -166,7 +175,7 @@ writeVarInt:
 ; I just use em here becauze im lazyyy
 section ".data" writable
 response:
-    .name db "response.json"
+    .name db "response.json", 0
     .stat rb 144
     .fd   rq 1
 
@@ -176,7 +185,7 @@ server:
     .socket     rq 1
     .connection rq 1
 
-
+act sigaction main.closeSocket, ?, ?, ?
 reader Reader buffer, 0
 writer Writer buffer, 0
 

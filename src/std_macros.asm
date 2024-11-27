@@ -28,6 +28,15 @@ macro syscall3 op, arg0, arg1, arg2 {
     syscall
 }
 
+macro syscall4 op, arg0, arg1, arg2, arg3 {
+    mov rdi, arg0
+    mov rsi, arg1
+    mov rdx, arg2
+    mov r10, arg3
+    mov rax, op
+    syscall
+}
+
 macro read fd, buf, count {
     syscall3 0, fd, buf, count
 }
@@ -46,6 +55,10 @@ macro close fd {
 
 macro fstat fd, statbuf {
     syscall2 5, fd, statbuf
+}
+
+macro rt_sigaction fd, act, oldact, sigsetsize = 8 { ; sizeof(sigset_t) = 8
+    syscall4 13, fd, act, oldact, sigsetsize
 }
 
 macro socket domain, type, protocol {

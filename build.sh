@@ -5,5 +5,5 @@
 #set -xe
 
 fasm src/main.asm main.o
-ld.lld main.o -o main -s
+ld.lld main.o -o main -s -e main
 rm main.o
